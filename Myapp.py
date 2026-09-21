@@ -1,5 +1,6 @@
 import argparse
 import random
+import re
 import sys
 from fractions import Fraction
 
@@ -8,12 +9,12 @@ from fractions import Fraction
 def format_fraction(frac: Fraction) -> str:
     """将 Fraction 对象转化为带分数/真分数/整数格式：例如 2'3/8, 3/5, 0, 4"""
     if frac.denominator == 1:
-        return str(frac.numerator)
+        return str(frac.numerator)          # 整数：4
     whole = frac.numerator // frac.denominator
     rem = frac.numerator % frac.denominator
     if whole > 0:
-        return f"{whole}'{rem}/{frac.denominator}"
-    return f"{rem}/{frac.denominator}"
+        return f"{whole}'{rem}/{frac.denominator}"   # 带分数：2'3/8
+    return f"{rem}/{frac.denominator}"               # 真分数：3/5
 
 
 def parse_fraction(s: str) -> Fraction:
@@ -42,7 +43,7 @@ class ExprNode:
     def to_str(self, parent_op=None) -> str:
         """生成带括号的表达式文本"""
         if self.op is None:
-            return format_fraction(self.val)
+            return format_fraction(self.val)          # 叶节点：直接输出分数
 
         op_precedence = {"+": 1, "-": 1, "×": 2, "÷": 2}
         my_prec = op_precedence[self.op]
@@ -51,13 +52,14 @@ class ExprNode:
         right_str = self.right.to_str(self.op)
 
         # 结合性与优先级处理括号
-        # 1. 右结合减法与除法需要加括号，如 a - (b - c)
+        # 右子树：优先级更低，或同级但本节点是 '-'/'÷'（不满足右结合）时必须加括号，如 a - (b - c)
         if self.right.op and (
             op_precedence[self.right.op] < my_prec
             or (self.op in ("-", "÷") and op_precedence[self.right.op] == my_prec)
         ):
             right_str = f"({right_str})"
 
+        # 左子树：只有优先级更低才需要括号（同级靠左结合天然免括号）
         if self.left.op and op_precedence[self.left.op] < my_prec:
             left_str = f"({left_str})"
 
@@ -72,7 +74,7 @@ class ExprNode:
         c_left = self.left.get_canonical_repr()
         c_right = self.right.get_canonical_repr()
 
-        # 加法与乘法遵循交换律：根据子表达式的哈希串或大小进行固定排序
+        # 加法与乘法遵循交换律：左右规范串按字典序固定排序，使交换后的等价树产出同一字符串
         if self.op in ("+", "×"):
             if c_left > c_right:
                 c_left, c_right = c_right, c_left
@@ -83,8 +85,9 @@ class ExprNode:
 # ==================== 3. 随机题目生成 ====================
 def generate_operand(r: int) -> ExprNode:
     """生成范围 [0, r) 的操作数（自然数或真分数）"""
+    # 分母取值范围为 [2, r-1]，故 r <= 2 时不存在合法真分数，只能生成自然数
     is_fraction = random.choice([True, False])
-    if is_fraction and r > 1:
+    if is_fraction and r > 2:
         den = random.randint(2, r - 1)
         num = random.randint(1, den * r - 1)
         # 排除整除情况，保证是带分数或真分数
@@ -170,7 +173,7 @@ def generate_exercises(n: int, r: int):
 
     if len(exercises) < n:
         print(
-            f"提示：在给定的范围 r={r} 下仅生成了 {len(exercises)} 道不重复题目。"
+            f"提示：在给定的范围 r={r}下，生成了 {len(exercises)} 道不重复题目。"
         )
 
     with open("Exercises.txt", "w", encoding="utf-8") as f_ex, open(
@@ -184,21 +187,26 @@ def generate_exercises(n: int, r: int):
 
 
 # ==================== 4. 批改与对错统计 ====================
+# 数字 token 匹配：带分数 2'3/8 | 分数 3/8 | 整数 2（一次扫描按次序优先匹配）
+_NUM_TOKEN_RE = re.compile(r"(\d+)'(\d+)/(\d+)|(\d+)/(\d+)|(\d+)")
+
+
 def parse_expression_to_fraction(expr_str: str) -> Fraction:
-    """将题目的算术表达式字符串求值"""
-    expr = expr_str.replace("×", "*").replace("÷", "/")
-    # 将带分数 2'3/8 替换为 (2 + 3/8)
-    tokens = expr.split()
-    converted_tokens = []
-    for t in tokens:
-        if "'" in t:
-            whole, frac = t.split("'")
-            converted_tokens.append(f"({whole}+{frac})")
-        else:
-            converted_tokens.append(t)
-    expr_eval_str = " ".join(converted_tokens)
-    # 使用 Fraction 保持精度运算
-    # 用 Python 内置 eval 安全计算（受限作用域）
+    """将题目的算术表达式字符串求值（全程 Fraction 精确运算，无浮点误差）"""
+    expr = expr_str.replace("×", "*").replace("÷", "/").replace("−", "-")
+
+    # 关键点：把所有数字统一替换为 Fraction 构造，避免 eval 中 int/int
+    # 退化为二进制浮点数（如 1/9 无法精确表示），导致与标准答案比对失败。
+    # 2'3/8 -> (Fraction(2)+Fraction(3,8))，3/8 -> Fraction(3,8)，2 -> Fraction(2)
+    def _repl(m: re.Match) -> str:
+        if m.group(1) is not None:
+            return f"(Fraction({m.group(1)})+Fraction({m.group(2)},{m.group(3)}))"
+        if m.group(4) is not None:
+            return f"Fraction({m.group(4)},{m.group(5)})"
+        return f"Fraction({m.group(6)})"
+
+    expr_eval_str = _NUM_TOKEN_RE.sub(_repl, expr)
+    # 使用 Python 内置 eval 安全计算（受限作用域，仅暴露 Fraction）
     return eval(expr_eval_str, {"__builtins__": None, "Fraction": Fraction})
 
 
@@ -255,8 +263,8 @@ def main():
     parser.add_argument(
         "-r", type=int, help="数值范围（自然数、真分数和真分数分母 < r）"
     )
-    parser.add_argument("-e", type=str, help="题目文件路径 (例如 Exercises.txt)")
-    parser.add_argument("-a", type=str, help="答案文件路径 (例如 Answers.txt)")
+    parser.add_argument("-e", type=str, help="题目文件路径 (Exercises.txt)")
+    parser.add_argument("-a", type=str, help="答案文件路径 (Answers.txt)")
 
     args = parser.parse_args()
 
