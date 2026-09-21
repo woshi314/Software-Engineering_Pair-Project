@@ -18,8 +18,8 @@ def format_fraction(frac: Fraction) -> str:
 
 
 def parse_fraction(s: str) -> Fraction:
-    """解析 2'3/8, 3/5, 4 格式为 Fraction 对象"""
-    s = s.strip()
+    """解析 2'3/8, 3/5, 4 格式为 Fraction 对象（兼容全角撇号 2’3/8）"""
+    s = s.strip().replace("’", "'")
     if "'" in s:
         whole_part, frac_part = s.split("'")
         num, den = frac_part.split("/")
@@ -193,7 +193,10 @@ _NUM_TOKEN_RE = re.compile(r"(\d+)'(\d+)/(\d+)|(\d+)/(\d+)|(\d+)")
 
 def parse_expression_to_fraction(expr_str: str) -> Fraction:
     """将题目的算术表达式字符串求值（全程 Fraction 精确运算，无浮点误差）"""
-    expr = expr_str.replace("×", "*").replace("÷", "/").replace("−", "-")
+    # 兼容需求示例中的全角符号：× ÷ − 与带分数撇号 ’
+    expr = (
+        expr_str.replace("×", "*").replace("÷", "/").replace("−", "-").replace("’", "'")
+    )
 
     # 关键点：把所有数字统一替换为 Fraction 构造，避免 eval 中 int/int
     # 退化为二进制浮点数（如 1/9 无法精确表示），导致与标准答案比对失败。
