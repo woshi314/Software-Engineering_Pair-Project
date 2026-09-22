@@ -18,7 +18,7 @@ def format_fraction(frac: Fraction) -> str:
 
 
 def parse_fraction(s: str) -> Fraction:
-    """解析 2'3/8, 3/5, 4 格式为 Fraction 对象（兼容全角撇号 2’3/8）"""
+    """解析 2'3/8, 3/5, 4 格式为 Fraction 对象"""
     s = s.strip().replace("’", "'")
     if "'" in s:
         whole_part, frac_part = s.split("'")
@@ -59,7 +59,7 @@ class ExprNode:
         ):
             right_str = f"({right_str})"
 
-        # 左子树：只有优先级更低才需要括号（同级靠左结合天然免括号）
+        # 左子树：只有优先级更低才需要括号（同级靠左结合，不需要括号）
         if self.left.op and op_precedence[self.left.op] < my_prec:
             left_str = f"({left_str})"
 
@@ -104,7 +104,7 @@ def build_expression_tree(op_count: int, r: int) -> ExprNode | None:
     性能优化（效能分析改进点）：对 '-' 与 '÷' 采用"交换构造代替拒绝采样"。
     原实现先随机生成左右操作数、不满足约束就整棵子树丢弃重试，
     cProfile 显示约 73% 的子树构建被拒绝浪费；
-    现改为生成后按需交换左右子树，使约束天然满足，仅极端情况才重试。
+    现改为生成后按需交换左右子树，使约束天然满足，仍不满足时才重试。
     """
     if op_count == 0:
         return generate_operand(r)
@@ -193,7 +193,6 @@ _NUM_TOKEN_RE = re.compile(r"(\d+)'(\d+)/(\d+)|(\d+)/(\d+)|(\d+)")
 
 def parse_expression_to_fraction(expr_str: str) -> Fraction:
     """将题目的算术表达式字符串求值（全程 Fraction 精确运算，无浮点误差）"""
-    # 兼容需求示例中的全角符号：× ÷ − 与带分数撇号 ’
     expr = (
         expr_str.replace("×", "*").replace("÷", "/").replace("−", "-").replace("’", "'")
     )
